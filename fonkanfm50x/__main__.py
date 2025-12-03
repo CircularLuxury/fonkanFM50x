@@ -1,29 +1,20 @@
-from fonkanfm50x import FonkanUHF
+
+from fonkanfm50x import FonkanUHF, AvailableBaudRates, RFIDRegion
 import time
 
 if __name__ == '__main__':
-    reader = FonkanUHF()
-    reader.begin(start_power=25, start_baud_ignored_for_now=None)
+    with FonkanUHF(start_power=25,#
+                    baud_rate=AvailableBaudRates.BAUD_115200,
+                    region=RFIDRegion.EU
+                   ) as reader:
+        version = reader.get_reader_firmware()
+        serial = reader.get_reader_id()
+        print(f"Connected to reader id: {serial} | Firmware version: {version}")
 
-    version = reader.get_reader_firmware()
-    serial = reader.get_reader_id()
-    print(f"Connected to reader id: {serial} | Firmware version: {version}")
-
-    try:
-        while True:
-            reader.send_command()
-            RFID_Tag, RFID_Time = reader.read_buffer()
-            time.sleep(0.1)
-            if len(RFID_Tag) > 15:
-                if RFID_Tag != reader.last_tag:
-                    print(f"New tag found {RFID_Tag.split('\n')[1]} after {time.time() - reader.last_time} seconds")
-                    reader.last_tag = RFID_Tag
-                    reader.last_time = time.time()
-                elif time.time() - reader.last_time > reader.stall_time:
-                    print(f"\t\tFound tag again after {reader.stall_time} seconds")
-                    reader.last_tag = RFID_Tag
-                    reader.last_time = time.time()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        reader.destroy()
+        try:
+            while True:
+                tag = reader.search_tags()
+                print(f"New tag found {tag.split('\n')[1]} after {time.time() - reader.last_time} seconds")
+        except KeyboardInterrupt:
+            import sys
+            sys.exit(0)

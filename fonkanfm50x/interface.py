@@ -9,19 +9,22 @@ class FonkanUHF:
 	ISO18000-64 / EPCglobal UHF Class 1 Gen 2 standard compliant..
 	"""
 
-	def __init__(self, serial_port: str = '/dev/ttyACM0'):
+	def __init__(self, 
+			  serial_port: str = '/dev/ttyACM0',
+			  start_power: int = 25,
+			  baud_rate: AvailableBaudRates = AvailableBaudRates.BAUD_38400,
+			  region: RFIDRegion = RFIDRegion.EU):
 		# WARNING: The RFID Module MUST be connected through the non power USB port
 		self.serial_port = serial_port
+		self.start_power = start_power
+		self.baud_rate = baud_rate
+		self.region = region
 		self.ser: serial.Serial | None = None
 		self.stall_time = 60
 		self.last_tag = "initialise value"
 		self.last_time = time.time() - self.stall_time
 
-	def begin(self, 
-		   	start_power: int = 25,
-			baud_rate: AvailableBaudRates = AvailableBaudRates.BAUD_230400,
-			region: RFIDRegion = RFIDRegion.EU
-		):
+	def __enter__(self):
 		# baud parameter is ignored for now to match request
 		self.ser = serial.Serial(
 			port=self.serial_port,
@@ -33,16 +36,19 @@ class FonkanUHF:
 		)
 
 		# Configure reader
-		self.set_power_level(start_power)
-		self.set_region(region)
-		self.change_baud_rate(baud_rate)
+		self.set_power_level(self.start_power)
+		self.set_region(self.region)
+		self.change_baud_rate(self.baud_rate)
 
-	def destroy(self):
+		return self
+	
+	def __exit__(self, exc_type, exc_val, exc_tb):
 		if self.ser and self.ser.is_open:
 			try:
 				self.ser.close()
 			finally:
 				self.ser = None
+		return False
 
 	####################################################################
 	# Internal
