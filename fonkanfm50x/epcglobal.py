@@ -58,8 +58,6 @@ class TagModelParser:
         tmn = tid_bits[20:32] # Tag Model Number
         tmn_hex = hex(int(tmn, 2))[2:].upper().zfill(3)
 
-        print(f"TID bits: {tmn} {tmn_hex}")
-
         # Get mask designer ID from json file
         model_name = ""
         try:
