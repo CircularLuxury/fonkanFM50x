@@ -160,6 +160,8 @@ class FonkanUHF:
         if res == terminator:
             # If not even the first response, return empty list
             return
+        else:
+            yield res
 
         while True:
             res = self._read_response()
@@ -375,6 +377,7 @@ class FonkanUHF:
 
         # Find tags until we recieve 'U': no tags found.
         for res in self.send_command_and_get_response_until(f"U{slot_q or ''}", terminator=""):
+            print(f"res: {res}") if self.debug else None
             if res == "":
                 continue
             yield self._parse_tag_id_response(res)
