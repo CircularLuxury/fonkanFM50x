@@ -299,12 +299,15 @@ class FonkanUHF:
         else:                        
             return self._parse_tag_id_response(res)
     
-    def read_many_tag_id(self) -> list[str]:
+    def read_many_tag_id(self, slot_q:int|None = None) -> list[str]:
         """
         Display tag EPC ID. Multiple at the same time if present.
         """
+
+        slot_q = hex(slot_q)[2:].upper() if slot_q is not None else ''
+
         # Find tags until we recieve 'U': no tags found.
-        tags = self.send_command_and_get_response_until("U", terminator="")
+        tags = self.send_command_and_get_response_until(f"U{slot_q or ''}", terminator="")
         if tags == []:
             return []
         else:
@@ -360,7 +363,7 @@ class FonkanUHF:
 
             return parsed_epc, data #bytes.fromhex(res).decode('utf-8')
 
-    def read_multi_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int, slot_q:int=3) -> list[tuple[str, str]]:
+    def read_multi_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int, slot_q:int|None=None) -> list[tuple[str, str]]:
         """
         Read tag memory, multiband, multi-tag. Returns EPC & data
         slot_q: EPCglobal Class 1 Gen 2 ALOHA Anti-collision number of slots/Q-value that can be replied on. Designed for robust tag counting. Read: https://koreascience.kr/article/JAKO200911764893096.pdf
@@ -371,8 +374,7 @@ class FonkanUHF:
         assert 0 <= address <= 0x3FFF, "Address must be between 0 and 16383 (0x3FFF)"
         assert 1 <= length <= 30, "Length must be between 1 and 30 words (2-60 bytes)"
 
-        # slot_q to hex character
-        slot_q = hex(slot_q)[2:].upper()
+        slot_q = hex(slot_q)[2:].upper() if slot_q is not None else ''
 
         tags = self.send_command_and_get_response_until(f"U{slot_q},R{bank.value},{address},{length}", "")
         if tags == []:
