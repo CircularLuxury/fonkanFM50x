@@ -1,62 +1,36 @@
 class UnexpectedReaderResponseException(Exception):
     pass
 
+class ReaderCommandNotSupportedException(Exception):
+    pass
 
 #################################################
-# Read Exceptions
+# Tag Read/Write Exceptions
 #################################################
-class TagReadGenericException(Exception):
+class TagGenericException(Exception):
     pass
 
-class TagReadMemoryOverrunException(TagReadGenericException):
+class TagMemoryOverrunException(TagGenericException):
     pass
-class TagReadMemoryLockedException(TagReadGenericException):
+class TagMemoryLockedException(TagGenericException):
     pass
-class TagReadInsufficientPowerException(TagReadGenericException):
+class TagInsufficientPowerException(TagGenericException):
     pass
-class TagReadUnknownException(TagReadGenericException):
+class TagUnknownException(TagGenericException):
     pass
 
-def raise_exception_from_code_read(error_code: str, message: str = ""):
+def raise_exception_from_code(error_code: str, message: str = ""):
     if error_code == '3':
-        raise TagReadMemoryOverrunException(message)
+        raise TagMemoryOverrunException(message)
     elif error_code == '4':
-        raise TagReadMemoryLockedException(message)
+        raise TagMemoryLockedException(message)
     elif error_code == 'B':
-        raise TagReadInsufficientPowerException(message)
+        raise TagInsufficientPowerException(message)
+    elif error_code == 'E':
+        raise TagUnknownException(message)
     elif error_code == 'F':
-        raise TagReadUnknownException(message)
+        raise TagUnknownException(message)
     elif error_code == '0':
-        raise TagReadGenericException(message)
+        raise TagGenericException(message)
     else:
-        raise TagReadGenericException(f"Unknown error code: {error_code}")
-
-
-#################################################
-# Write Exceptions
-#################################################
-class TagWriteGenericException(Exception):
-    pass
-
-class TagWriteMemoryOverrunException(TagWriteGenericException):
-    pass
-class TagWriteMemoryLockedException(TagWriteGenericException):
-    pass
-class TagWriteInsufficientPowerException(TagWriteGenericException):
-    pass
-class TagWriteUnknownException(TagWriteGenericException):
-    pass
-
-def raise_exception_from_code_write(error_code: str, message: str = ""):
-    if error_code == '3':
-        raise TagWriteMemoryOverrunException(message)
-    elif error_code == '4':
-        raise TagWriteMemoryLockedException(message)
-    elif error_code == 'B':
-        raise TagWriteInsufficientPowerException(message)
-    elif error_code == 'F':
-        raise TagWriteUnknownException(message)
-    elif error_code == '0':
-        raise TagWriteGenericException(message)
-    else:
-        raise TagWriteGenericException(f"Unknown error code: {error_code}")
+        raise UnexpectedReaderResponseException(f"Unknown error code: {error_code}: {message}")

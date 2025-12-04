@@ -2,8 +2,8 @@ import serial
 import time
 from fastcrc import crc16
 
-from .types import RFIDRegion, AvailableBaudRates
-from .exceptions import UnexpectedReaderResponseException, TagReadGenericException
+from .types import RFIDRegion, AvailableBaudRates, EPCMemoryBank
+from .exceptions import ReaderCommandNotSupportedException, UnexpectedReaderResponseException, raise_exception_from_code
 
 AFTER_SETTING_COMMAND_DELAY = 0.3 # Tested with default 38400 baud rate up to 230400 baud rate, so not dependent on connection speed
 
@@ -126,25 +126,24 @@ class FonkanUHF:
         else:
             return decoded
 
-    def send_command_and_get_response(self, command: str) -> str | None:
+    def send_command_and_get_response(self, command: str, handle_error: callable = raise_exception_from_code) -> str:
         self._write_command(command)
 
         decoded = self._read_response()
 
         if decoded == 'X':
-            raise RuntimeError(f"RFID Reader does not understand {command}")
+            raise ReaderCommandNotSupportedException(f"RFID Reader does not understand {command}")
         elif decoded and decoded[0] != command[0]:
-            raise RuntimeError(f"RFID Reader returned unexpected response for {command}: {decoded}")
+            handle_error(decoded[0], f"response {decoded} while executing command {command}")
+            raise UnexpectedReaderResponseException(f"RFID Reader returned unexpected response for {command}: {decoded}")
 
         return decoded[1:]
     
-    def send_command_and_get_response_until(self, command: str, terminator: str) -> list[str] | None:
+    def send_command_and_get_response_until(self, command: str, terminator: str) -> list[str]:
         # Call self.send_command_and_get_response repeatedly until terminator is found
         responses = []
         res = self.send_command_and_get_response(command)
-        if res is None:
-            return None
-        elif res == terminator:
+        if res == terminator:
             # If not even the first response, return empty list
             return []
         while True:
@@ -270,7 +269,7 @@ class FonkanUHF:
         # elif pc_control_word == "4000":
         #     # EPC length is 8 words, 16 bytes, 128 bits
         # else:
-        #     raise TagReadGenericException(f"Unsupported PC control word: {pc_control_word}")
+        #     raise RuntimeWarning(f"Unsupported PC control word: {pc_control_word}")
 
         epc_tag_id = res[4:-4]
         read_crc16 = res[-4:]
@@ -284,7 +283,7 @@ class FonkanUHF:
 
         if expected_crc != read_crc16:
             print(f'found {pc_control_word}, {epc_tag_id}, {read_crc16}, calculated {expected_crc}')
-            raise TagReadGenericException(f"Invalid CRC16. Received: {read_crc16}, Calculated: {expected_crc}")
+            raise RuntimeWarning(f"Invalid CRC16. Received: {read_crc16}, Calculated: {expected_crc}")
         return epc_tag_id
 
     def read_tag_id(self) -> str | None:
@@ -332,19 +331,42 @@ class FonkanUHF:
 
             return tags_processed
     
-    def read_tag_memory(self, bank: int, address: int, length: int) -> str:
+    def read_tag_memory(self, bank: EPCMemoryBank, address: int, length: int) -> str | None:
         """
         Read tag memory
-        bank:
-            0: Reserved
-            1: EPC
-            2: TID
-            3: User
+        bank: reserved/EPC/TID/User
         address: word address: 0-> 3FFF
         length: read word length: 1->1E (1->30 bytes)
         """
-        res = self.send_command_and_get_response(f"R{bank},{address},{length}")
-        if res is None:
-            raise UnexpectedReaderResponseException("No response from read tag memory command")
-        return res
+        res = self.send_command_and_get_response(f"R{bank.value},{address},{length}")
+        if res == '':
+            # No tag in RF field
+            return None
+        else:
+            return res #bytes.fromhex(res).decode('utf-8')
+    
+
+    def read_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int, multiband:bool=False) -> tuple[str, str] | None:
+        """
+        Read tag memory, multiband. Returns EPC
+        bank: reserved/EPC/TID/User
+        address: word address: 0-> 3FFF
+        length: read word length: 1->1E (1->30 bytes)
+        """
+
+        res = self.send_command_and_get_response(f"Q,R{bank.value},{address},{length}")
+        if res == '':
+            # No tag in RF field
+            return None
+        else:
+            res = res.split(',')
+            epc = res[0]
+            data = ','.join(res[1:])
+            # Raise error on communication with RFID error
+            if data[0] != 'R':
+                raise_exception_from_code(data[0])
+            data = data[1:] # remove leading R, since command is Q,R and the R is echoed
+
+
+            return self._parse_tag_id_response(epc), data #bytes.fromhex(res).decode('utf-8')
     

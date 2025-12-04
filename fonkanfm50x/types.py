@@ -42,3 +42,9 @@ class AvailableBaudRates(Enum):
 			AvailableBaudRates.BAUD_115200: 115200,
 			AvailableBaudRates.BAUD_230400: 230400,
 		}[self]
+
+class EPCMemoryBank(Enum):
+	RESERVED = 0
+	EPC = 1
+	TID = 2
+	USER = 3
