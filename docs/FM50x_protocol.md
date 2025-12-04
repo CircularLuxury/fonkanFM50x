@@ -43,7 +43,7 @@ If the command is not found, the return message will be `<LF>X<CR><LF>`.
 + `4` : memory locked
 + `B` : Insufficient power
 + `F` : Non-specific error
-> NOTE: There appears to be another error code when reading: 'E'
+> NOTE: There appears to be another error code when reading: 'E', which seems to be a sort of low RSSI/connection interruption/collision error.
 
 ### Device commands:
 | Command*                                                                                                                                                                                                          | Return Message**                                                                                                                                                                                                                                                 | Description                     |
