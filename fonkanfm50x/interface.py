@@ -130,6 +130,7 @@ class FonkanUHF:
         self._write_command(command)
 
         decoded = self._read_response()
+        decoded = decoded.strip() if decoded else None
 
         if decoded == 'X':
             raise ReaderCommandNotSupportedException(f"RFID Reader does not understand {command}")
@@ -151,7 +152,7 @@ class FonkanUHF:
             if res is None:
                 break
             # remove command echo
-            res = res[1:]
+            res = res.strip()[1:]
 
             responses.append(res)
             if res == terminator:
@@ -298,29 +299,13 @@ class FonkanUHF:
         else:                        
             return self._parse_tag_id_response(res)
     
-    '''
-    A: the RFID Tag memory (Tag) is divided into Reserved memory (retention), EPC (electronic product code), TID (Tag identification number) and the User (User) four independent storage block (Bank).
-
-    Reserved area: store Kill Password (monkey) and Access Password (Access Password).
-
-    EPC area: store the EPC number, etc.
-
-    Every TID area: store tags identification number, number should be unique.
-
-    The User area: storing User defined data.
-
-    In addition to the Lock (Lock) status of each block and so on use and storage properties of units.
-    '''
-
     def read_many_tag_id(self) -> list[str]:
         """
         Display tag EPC ID. Multiple at the same time if present.
         """
         # Find tags until we recieve 'U': no tags found.
         tags = self.send_command_and_get_response_until("U", terminator="")
-        if tags is None:
-            raise UnexpectedReaderResponseException("No response from read tag command")
-        elif tags == []:
+        if tags == []:
             return []
         else:
             tags_processed = []
@@ -336,23 +321,27 @@ class FonkanUHF:
         Read tag memory
         bank: reserved/EPC/TID/User
         address: word address: 0-> 3FFF
-        length: read word length: 1->1E (1->30 bytes)
+        length: read word length: 1->1E
         """
+        assert 0 <= address <= 0x3FFF, "Address must be between 0 and 16383 (0x3FFF)"
+        assert 1 <= length <= 30, "Length must be between 1 and 30 words (2-60 bytes)"
+
         res = self.send_command_and_get_response(f"R{bank.value},{address},{length}")
         if res == '':
             # No tag in RF field
             return None
         else:
             return res #bytes.fromhex(res).decode('utf-8')
-    
 
-    def read_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int, multiband:bool=False) -> tuple[str, str] | None:
+    def read_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int) -> tuple[str, str] | None:
         """
-        Read tag memory, multiband. Returns EPC
+        Read tag memory, multiband. Returns EPC & data
         bank: reserved/EPC/TID/User
         address: word address: 0-> 3FFF
-        length: read word length: 1->1E (1->30 bytes)
+        length: read word length: 1->1E
         """
+        assert 0 <= address <= 0x3FFF, "Address must be between 0 and 16383 (0x3FFF)"
+        assert 1 <= length <= 30, "Length must be between 1 and 30 words (2-60 bytes)"
 
         res = self.send_command_and_get_response(f"Q,R{bank.value},{address},{length}")
         if res == '':
@@ -370,4 +359,38 @@ class FonkanUHF:
 
 
             return parsed_epc, data #bytes.fromhex(res).decode('utf-8')
-    
+
+    def read_multi_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int, slot_q:int=3) -> list[tuple[str, str]]:
+        """
+        Read tag memory, multiband, multi-tag. Returns EPC & data
+        slot_q: EPCglobal Class 1 Gen 2 ALOHA Anti-collision number of slots/Q-value that can be replied on. Designed for robust tag counting. Read: https://koreascience.kr/article/JAKO200911764893096.pdf
+        bank: reserved/EPC/TID/User
+        address: word address: 0-> 3FFF
+        length: read word length: 1->1E
+        """
+        assert 0 <= address <= 0x3FFF, "Address must be between 0 and 16383 (0x3FFF)"
+        assert 1 <= length <= 30, "Length must be between 1 and 30 words (2-60 bytes)"
+
+        # slot_q to hex character
+        slot_q = hex(slot_q)[2:].upper()
+
+        tags = self.send_command_and_get_response_until(f"U{slot_q},R{bank.value},{address},{length}", "")
+        if tags == []:
+            return []
+        else:
+            tags_processed = []
+            for res in tags:
+                if res == "":
+                    continue
+
+                res = res.split(',')
+                epc = res[0]
+                parsed_epc = self._parse_tag_id_response(epc)
+                data = ','.join(res[1:])
+                # Raise error on communication with RFID error
+                if data[0] != 'R':
+                    raise_exception_from_code(data[0], f"error while reading {parsed_epc}")
+                data = data[1:] # remove leading R, since command is Q,R and the R is echoed
+
+                tags_processed.append((parsed_epc, data))
+            return tags_processed
