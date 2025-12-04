@@ -1,11 +1,17 @@
 import serial
 import time
+from enum import Enum
 from fastcrc import crc16
 
 from .types import RFIDRegion, AvailableBaudRates, EPCMemoryBank
 from .exceptions import ReaderCommandNotSupportedException, UnexpectedReaderResponseException, raise_exception_from_code
 
 AFTER_SETTING_COMMAND_DELAY = 0.3 # Tested with default 38400 baud rate up to 230400 baud rate, so not dependent on connection speed
+
+class GPIOPin(Enum):
+    GPIO_10 = 4
+    GPIO_11 = 2
+    GPIO_14 = 1
 
 class FonkanUHF:
     """
@@ -214,18 +220,75 @@ class FonkanUHF:
         # Change serial connection baud rate
         self._change_serial_connection_baud_rate(baud_rate)
 
-    # GPIO
-    # | N6,00 get GPIO configuration N7,<value> set GPIO configuration <value>mask and setting mask: first digi 4+2+1 4: pin10 2: pin11 1: pin14 setting: second digi 4+2+1 4: pin10 out 2: pin11 out 1: pin14 out        | N<value> <value> 4+2+1 4: pin10 out 2: pin11 out 1: pin14 out                                                                                                                                                                                                    |                                 | get/set GPIO input/output configuration                                                          |
-    # | N8,00 read GPIO pins N9,<value> write GPIO pins <value>mask and setting mask: first digi 4+2+1 4: pin10 2: pin11 1: pin14 setting: second digi 4+2+1 4: pin10 high 2: pin11 high 1: pin14 high                    | N<value> <value> 4+2+1 4: pin10 high level 2: pin11 high level 1: pin14 high level                                                                                                                                                                               |                                 | read/write GPIO pins                                                                             |
+    ####################################################################
+    # GPIO Control
+    ####################################################################
 
-    # def get_gpio_configuration(self) -> str:
-    #     return self.send_command_and_get_response("N6,00")
-    # def set_gpio_configuration(self, value: str):
-    #     self.send_command(f"N7,{value}")
-    # def read_gpio_pins(self) -> str:
-    #     return self.send_command_and_get_response("N8,00")
-    # def write_gpio_pins(self, value: str):
-    #     self.send_command(f"N9,{value}")
+    def get_gpio_configuration(self) -> dict[GPIOPin, bool]:
+        """
+        Get GPIO pin configuration as input/output: pin: output(True)/input(False)
+        """
+        res = self.send_command_and_get_response("N6,00")
+        config_value = int(res)
+        config = {}
+        for pin in GPIOPin:
+            is_output = (config_value & pin.value) != 0
+            config[pin] = is_output
+        return config
+
+    def configure_gpio(self, config: dict[GPIOPin, bool]):
+        """
+        Configure GPIO pin as input or output: pin: output(True)/input(False)
+
+        configure_gpio({GPIOPin.GPIO_10: True, GPIOPin.GPIO_11: False})
+        """
+        # Get current configuration
+        current_config = self.get_gpio_configuration()
+        # check if it has changed
+        if current_config == config:
+            # No change needed
+            return
+        else:
+            # Update with new configuration
+            current_config.update(config)
+
+        # Build mask and value
+        mask = 0
+        value = 0
+        for pin, is_output in current_config.items():
+            mask |= pin.value
+            if is_output:
+                value |= pin.value
+
+        self.send_command(f"N7,{mask}{value}")
+
+    def read_gpio_pins(self) -> dict[GPIOPin, bool]:
+        """
+        Read GPIO pin levels: pin: high(True)/low(False)
+        """
+        res = self.send_command_and_get_response("N8,00")
+        pin_value = int(res)
+        levels = {}
+        for pin in GPIOPin:
+            is_high = (pin_value & pin.value) != 0
+            levels[pin] = is_high
+        return levels
+    
+    def write_gpio_pins(self, levels: dict[GPIOPin, bool]):
+        """
+        Write GPIO pin levels: pin: high(True)/low(False)
+
+        write_gpio_pins({GPIOPin.GPIO_10: True, GPIOPin.GPIO_11: False})
+        """
+        # Build mask and value
+        mask = 0
+        value = 0
+        for pin, is_high in levels.items():
+            mask |= pin.value
+            if is_high:
+                value |= pin.value
+
+        self.send_command(f"N9,{mask}{value}")
 
     ####################################################################
     # Status commands
@@ -259,10 +322,6 @@ class FonkanUHF:
 
     def _parse_tag_id_response(self, res: str) -> str:
         # res = PC+EPC+CRC16
-        # Example read:
-        # 3000E28068940000402C6FE0911EF6F4
-        # 3000E28068940000402 C6FE0
-        # 3000 E28068940000502 C6FE0
 
         pc_control_word = res[0:4]
         # if pc_control_word == "3000":
