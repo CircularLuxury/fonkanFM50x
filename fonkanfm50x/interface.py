@@ -3,6 +3,8 @@ import time
 
 from .types import RFIDRegion, AvailableBaudRates
 
+AFTER_SETTING_COMMAND_DELAY = 0.3 # Tested with default 38400 baud rate
+
 class FonkanUHF:
 	"""
 	Fonkan FM50x UHF RFID Reader class.
@@ -35,7 +37,6 @@ class FonkanUHF:
 			timeout=1,
 		)
 
-		# Configure reader
 		self.set_power_level(self.start_power)
 		self.set_region(self.region)
 		self.change_baud_rate(self.baud_rate)
@@ -55,36 +56,85 @@ class FonkanUHF:
 	####################################################################
 
 	def send_command(self, command: str):
+		res = self.send_command_and_get_response(command)
+		assert res is not None, f"No ACK for command {command}"
+	
+	def send_command_and_get_response(self, command: str) -> str | None:
 		if not self.ser:
 			raise RuntimeError("Serial port not initialized. Call begin() first.")
+		print(f">: {command.encode()}")
 		self.ser.write(f"\n{command}\r".encode())
-		# time.sleep(0.1)
-	
-	def send_command_and_get_response(self, command: str) -> str:
-		self.send_command(command)
-		time.sleep(0.1)
-		response = self.ser.read(self.ser.in_waiting).decode('utf-8') #.replace(response_prefix, '').strip()
-		return response
+
+		response = b''
+		# Read until first LF
+		while True:
+			byte = self.ser.read(1)
+			if not byte:
+				break
+			if byte == b'\n':  # LF
+				break
+		# Read until CR LF
+		while True:
+			byte = self.ser.read(1)
+			if not byte:
+				break
+			response += byte
+			if response.endswith(b'\r\n'):  # CR LF
+				response = response[:-2]  # Strip the CR LF
+				break
+
+		decoded = response.decode('utf-8', errors='ignore')
+		print(f"<: {decoded}")
+
+		if decoded == 'X':
+			raise RuntimeError(f"RFID Reader does not understand {command}")
+		elif decoded == '':
+			return None
+		elif decoded[0] != command[0]:
+			raise RuntimeError(f"RFID Reader returned unexpected response for {command}: {decoded}")
+
+		return decoded[1:]
 
 	####################################################################
 	# Configuration
 	####################################################################
+    
+	def get_region(self) -> RFIDRegion:
+		res = self.send_command_and_get_response("N4,00")
+		region_value = int(res)
+		for region in RFIDRegion:
+			if region.value == region_value:
+				return region
+		raise ValueError(f"Unknown region value: {region_value}")
 
 	def set_region(self, region: RFIDRegion):
 		# Set region
 		self.send_command(f"N5,0{region.value}")
+		
+		# This command requires a rate-limit after running to prevent the device from locking
+		time.sleep(AFTER_SETTING_COMMAND_DELAY)
 	
+	def get_power_level(self) -> int:
+		res = self.send_command_and_get_response("N0,00")
+		assert res is not None, "No response from get power level command"
+		return int(res, 16)
+
 	def set_power_level(self, power_level: int):
 		assert -2 <= power_level <= 25, "Power level must be between -2 and 25 dB"
 
 		# Convert int to hex string
 		power_level_hex = format(power_level, '02X')
 		self.send_command(f"N1,{power_level_hex}")
-	
+		
+		# This command requires a rate-limit after running to prevent the device from locking
+		time.sleep(AFTER_SETTING_COMMAND_DELAY)
+
 	def change_baud_rate(self, baud_rate: AvailableBaudRates):
 		# Change baud rate
-		self.send_command(f"N2,{baud_rate.value}")
-		time.sleep(0.2)
+		res = self.send_command_and_get_response(f"NA,0{baud_rate.value}")
+		assert res[0:2] == f"0{baud_rate.value}"
+		time.sleep(AFTER_SETTING_COMMAND_DELAY)
+
 		# Close current serial connection
 		self.ser.close()
 		# Reopen with new baud rate
@@ -100,7 +150,8 @@ class FonkanUHF:
 		}[baud_rate]
 		self.ser.baudrate = new_baud
 		self.ser.open()
-	
+		time.sleep(0.3)
+
 	# GPIO
 	# | N6,00 get GPIO configuration N7,<value> set GPIO configuration <value>mask and setting mask: first digi 4+2+1 4: pin10 2: pin11 1: pin14 setting: second digi 4+2+1 4: pin10 out 2: pin11 out 1: pin14 out        | N<value> <value> 4+2+1 4: pin10 out 2: pin11 out 1: pin14 out                                                                                                                                                                                                    |                                 | get/set GPIO input/output configuration                                                          |
 	# | N8,00 read GPIO pins N9,<value> write GPIO pins <value>mask and setting mask: first digi 4+2+1 4: pin10 2: pin11 1: pin14 setting: second digi 4+2+1 4: pin10 high 2: pin11 high 1: pin14 high                    | N<value> <value> 4+2+1 4: pin10 high level 2: pin11 high level 1: pin14 high level                                                                                                                                                                               |                                 | read/write GPIO pins                                                                             |
@@ -119,10 +170,22 @@ class FonkanUHF:
 	####################################################################
 
 	def get_reader_firmware(self) -> str:
-		return self.send_command_and_get_response("V")
+		res = self.send_command_and_get_response("V")
+		assert res is not None, "No response from reader firmware command"
+		res = res.split(',')
+		
+		major = res[0][0:2]
+		minor = res[0][2:4]
+		comment = ','.join(res[1:])
+	
+		# parse major from hex to int
+		major_int = int(major, 16)
+		minor_int = int(minor, 16)
+
+		return f"v{major_int}.{minor_int} ({major}{minor}, comment: {comment})"
 
 	def get_reader_id(self) -> str:
-		return self.send_command_and_get_response("N0")
+		return self.send_command_and_get_response("S")
 
 
 	####################################################################
