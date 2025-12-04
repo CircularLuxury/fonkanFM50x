@@ -38,7 +38,7 @@ class FonkanUHF:
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
             bytesize=serial.EIGHTBITS,
-            timeout=1,
+            timeout=.3,
         )
 
         # Try command to check if connection baud rate is correct.
@@ -93,12 +93,13 @@ class FonkanUHF:
         if res is None:
             raise UnexpectedReaderResponseException(f"No ACK for command {command}")
     
-    def send_command_and_get_response(self, command: str) -> str | None:
+    def _write_command(self, command: str) -> str | None:
         if not self.ser:
             raise RuntimeError("Serial port not initialized. Call begin() first.")
         print(f">: {command.encode()}") if self.debug else None
         self.ser.write(f"\n{command}\r".encode())
 
+    def _read_response(self) -> str | None:
         response = b''
         # Read until first LF
         while True:
@@ -120,14 +121,43 @@ class FonkanUHF:
         decoded = response.decode('utf-8', errors='ignore')
         print(f"<: {decoded}") if self.debug else None
 
+        if decoded == '':
+            return None
+        else:
+            return decoded
+
+    def send_command_and_get_response(self, command: str) -> str | None:
+        self._write_command(command)
+
+        decoded = self._read_response()
+
         if decoded == 'X':
             raise RuntimeError(f"RFID Reader does not understand {command}")
-        elif decoded == '':
-            return None
-        elif decoded[0] != command[0]:
+        elif decoded and decoded[0] != command[0]:
             raise RuntimeError(f"RFID Reader returned unexpected response for {command}: {decoded}")
 
         return decoded[1:]
+    
+    def send_command_and_get_response_until(self, command: str, terminator: str) -> list[str] | None:
+        # Call self.send_command_and_get_response repeatedly until terminator is found
+        responses = []
+        res = self.send_command_and_get_response(command)
+        if res is None:
+            return None
+        elif res == terminator:
+            # If not even the first response, return empty list
+            return []
+        while True:
+            res = self._read_response()
+            if res is None:
+                break
+            # remove command echo
+            res = res[1:]
+
+            responses.append(res)
+            if res == terminator:
+                break
+        return responses
 
     ####################################################################
     # Configuration
@@ -173,7 +203,7 @@ class FonkanUHF:
         # Reopen with new baud rate
         self.ser.baudrate = baud_rate.to_int()
         self.ser.open()
-        time.sleep(0.3)
+        # time.sleep(0.3)
 
     def change_baud_rate(self, baud_rate: AvailableBaudRates):
         # Change baud rate
@@ -227,19 +257,35 @@ class FonkanUHF:
     # Tag Operations
     ####################################################################
 
-    def _calculate_crc16(self, data: bytes) -> str:
-        '''
-        '''
-        crc = 0xFFFF
-        for byte in data:
-            crc ^= byte
-            for _ in range(8):
-                if (crc & 0x0001) != 0:
-                    crc >>= 1
-                    crc ^= 0xA001
-                else:
-                    crc >>= 1
-        return format(crc, '04X')
+    def _parse_tag_id_response(self, res: str) -> str:
+        # res = PC+EPC+CRC16
+        # Example read:
+        # 3000E28068940000402C6FE0911EF6F4
+        # 3000E28068940000402 C6FE0
+        # 3000 E28068940000502 C6FE0
+
+        pc_control_word = res[0:4]
+        # if pc_control_word == "3000":
+        #     # EPC length is 6 words, 12 bytes, 96 bits
+        # elif pc_control_word == "4000":
+        #     # EPC length is 8 words, 16 bytes, 128 bits
+        # else:
+        #     raise TagReadException(f"Unsupported PC control word: {pc_control_word}")
+
+        epc_tag_id = res[4:-4]
+        read_crc16 = res[-4:]
+        
+        # check CRC, raise exception if invalid
+        # Calculate CRC-16/GENIBUS
+        # Found correct algo with https://crccalc.com/?crc=3000E28068940000402C6FE0A11E&method=CRC-16/GENIBUS&datatype=hex&outtype=hex
+        expected_crc = crc16.genibus(bytes.fromhex(pc_control_word + epc_tag_id))
+        #Convert to 4-digit hex
+        expected_crc = format(expected_crc, '04X')
+
+        if expected_crc != read_crc16:
+            print(f'found {pc_control_word}, {epc_tag_id}, {read_crc16}, calculated {expected_crc}')
+            raise TagReadException(f"Invalid CRC16. Received: {read_crc16}, Calculated: {expected_crc}")
+        return epc_tag_id
 
     def read_tag_id(self) -> str | None:
         """
@@ -250,36 +296,8 @@ class FonkanUHF:
             raise UnexpectedReaderResponseException("No response from read tag command")
         elif res == '':
             return None
-        else:            
-            # res = PC+EPC+CRC16
-            # Example read:
-            # 3000E28068940000402C6FE0911EF6F4
-            # 3000E28068940000402 C6FE0
-            # 3000 E28068940000502 C6FE0
-
-            pc_control_word = res[0:4]
-            # if pc_control_word == "3000":
-            #     # EPC length is 6 words, 12 bytes, 96 bits
-            # elif pc_control_word == "4000":
-            #     # EPC length is 8 words, 16 bytes, 128 bits
-            # else:
-            #     raise TagReadException(f"Unsupported PC control word: {pc_control_word}")
-
-            epc_tag_id = res[4:-4]
-            read_crc16 = res[-4:]
-            
-            # check CRC, raise exception if invalid
-            # Calculate CRC-16/GENIBUS
-            # Found correct algo with https://crccalc.com/?crc=3000E28068940000402C6FE0A11E&method=CRC-16/GENIBUS&datatype=hex&outtype=hex
-            expected_crc = crc16.genibus(bytes.fromhex(pc_control_word + epc_tag_id))
-            #Convert to 4-digit hex
-            expected_crc = format(expected_crc, '04X')
-
-            if expected_crc != read_crc16:
-                print(f'found {pc_control_word}, {epc_tag_id}, {read_crc16}, calculated {expected_crc}')
-                raise TagReadException(f"Invalid CRC16. Received: {read_crc16}, Calculated: {expected_crc}")
-            
-            return epc_tag_id
+        else:                        
+            return self._parse_tag_id_response(res)
     
     '''
     A: the RFID Tag memory (Tag) is divided into Reserved memory (retention), EPC (electronic product code), TID (Tag identification number) and the User (User) four independent storage block (Bank).
@@ -295,28 +313,21 @@ class FonkanUHF:
     In addition to the Lock (Lock) status of each block and so on use and storage properties of units.
     '''
 
-    # def read_many_tag_ids(self) -> list[str]:
-    #     """
-    #     Read multiple tag EPC IDs
-    #     """
+    def read_many_tag_id(self) -> list[str]:
+        """
+        Display tag EPC ID. Multiple at the same time if present.
+        """
+        # Find tags until we recieve 'U': no tags found.
+        tags = self.send_command_and_get_response_until("U", terminator="")
+        if tags is None:
+            raise UnexpectedReaderResponseException("No response from read tag command")
+        elif tags == []:
+            return []
+        else:
+            tags_processed = []
+            for res in tags:
+                if res == "":
+                    continue
+                tags_processed.append(self._parse_tag_id_response(res))
 
-    #     res = self.send_command_and_get_response("Q")
-    #     if res is None:
-    #         raise UnexpectedReaderResponseException("No response from read tag command")
-    #     elif res == '':
-    #         return None
-    #     else:
-    #         # res = PC+EPC+CRC16
-    #         # example: 3000E28068940000402C6FE0911EF6F4
-    #         pc = res[0:4]
-    #         epc = res[4:-4]
-    #         crc16 = res[-4:]
-    
-    #         # check CRC, raise exception if invalid
-    #         calculated_crc16 = self._calculate_crc16(bytes.fromhex(pc + epc))
-    #         if calculated_crc16 != crc16:
-    #             print(f'found {pc}, {epc}, {crc16}, calculated {calculated_crc16}')
-    #             raise TagReadException(f"Invalid CRC16. Received: {crc16}, Calculated: {calculated_crc16}")
-            
-    #         return res
-
+            return tags_processed
