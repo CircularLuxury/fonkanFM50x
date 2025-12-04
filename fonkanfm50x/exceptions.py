@@ -1,15 +1,62 @@
 class UnexpectedReaderResponseException(Exception):
     pass
 
-class TagReadException(Exception):
+
+#################################################
+# Read Exceptions
+#################################################
+class TagReadGenericException(Exception):
     pass
 
-#################################################
-# Read Exception
-#################################################
-# <Error code> 0: other error 3: memory overrun 4: memory locked B: Insufficient power F: Non-specific error
+class TagReadMemoryOverrunException(TagReadGenericException):
+    pass
+class TagReadMemoryLockedException(TagReadGenericException):
+    pass
+class TagReadInsufficientPowerException(TagReadGenericException):
+    pass
+class TagReadUnknownException(TagReadGenericException):
+    pass
 
-# written ok <error code> 0: other error 3: memory overrun 4: memory locked   B: Insufficient power F: Non-specific error Z00~Z1F: words write 3Z00~3Z1F: error code and words write
+def raise_exception_from_code_read(error_code: str, message: str = ""):
+    if error_code == '3':
+        raise TagReadMemoryOverrunException(message)
+    elif error_code == '4':
+        raise TagReadMemoryLockedException(message)
+    elif error_code == 'B':
+        raise TagReadInsufficientPowerException(message)
+    elif error_code == 'F':
+        raise TagReadUnknownException(message)
+    elif error_code == '0':
+        raise TagReadGenericException(message)
+    else:
+        raise TagReadGenericException(f"Unknown error code: {error_code}")
 
-# kill ok <error code> 0: other error 3: memory overrun 4: memory locked   B: Insufficient power F: Non-specific error
-# lock ok <error code> 0: other error 3: memory overrun 4: memory locked B: Insufficient power F: Non-specific error
+
+#################################################
+# Write Exceptions
+#################################################
+class TagWriteGenericException(Exception):
+    pass
+
+class TagWriteMemoryOverrunException(TagWriteGenericException):
+    pass
+class TagWriteMemoryLockedException(TagWriteGenericException):
+    pass
+class TagWriteInsufficientPowerException(TagWriteGenericException):
+    pass
+class TagWriteUnknownException(TagWriteGenericException):
+    pass
+
+def raise_exception_from_code_write(error_code: str, message: str = ""):
+    if error_code == '3':
+        raise TagWriteMemoryOverrunException(message)
+    elif error_code == '4':
+        raise TagWriteMemoryLockedException(message)
+    elif error_code == 'B':
+        raise TagWriteInsufficientPowerException(message)
+    elif error_code == 'F':
+        raise TagWriteUnknownException(message)
+    elif error_code == '0':
+        raise TagWriteGenericException(message)
+    else:
+        raise TagWriteGenericException(f"Unknown error code: {error_code}")

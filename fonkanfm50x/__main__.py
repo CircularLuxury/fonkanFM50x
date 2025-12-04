@@ -1,5 +1,5 @@
 
-from fonkanfm50x import FonkanUHF, AvailableBaudRates, RFIDRegion, TagReadException
+from fonkanfm50x import FonkanUHF, AvailableBaudRates, RFIDRegion, TagReadGenericException
 
 if __name__ == '__main__':
     with FonkanUHF(start_power=25,#
@@ -7,16 +7,14 @@ if __name__ == '__main__':
                     region=RFIDRegion.EU,
                     debug=False
                    ) as reader:
-        version = reader.get_reader_firmware()
-        serial = reader.get_reader_id()
-        print(f"Connected to reader id: {serial} | Firmware version: {version} | Region: {reader.get_region()} | Power: {reader.get_power_level()} dBm")
+        print(f"Connected to reader id: {reader.get_reader_id()} | Firmware version: {reader.get_reader_firmware()} | Region: {reader.get_region()} | Power: {reader.get_power_level()} dBm")
 
         found_tag_ids = set()
         try:
             while True:
                 try:
                     tags = reader.read_many_tag_id()
-                except TagReadException as e:
+                except TagReadGenericException as e:
                     print(f"Error reading tag: {e}")
                     continue
                 if tags is not None and tags != []:

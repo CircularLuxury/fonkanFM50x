@@ -3,7 +3,7 @@ import time
 from fastcrc import crc16
 
 from .types import RFIDRegion, AvailableBaudRates
-from .exceptions import UnexpectedReaderResponseException, TagReadException
+from .exceptions import UnexpectedReaderResponseException, TagReadGenericException
 
 AFTER_SETTING_COMMAND_DELAY = 0.3 # Tested with default 38400 baud rate up to 230400 baud rate, so not dependent on connection speed
 
@@ -270,7 +270,7 @@ class FonkanUHF:
         # elif pc_control_word == "4000":
         #     # EPC length is 8 words, 16 bytes, 128 bits
         # else:
-        #     raise TagReadException(f"Unsupported PC control word: {pc_control_word}")
+        #     raise TagReadGenericException(f"Unsupported PC control word: {pc_control_word}")
 
         epc_tag_id = res[4:-4]
         read_crc16 = res[-4:]
@@ -284,7 +284,7 @@ class FonkanUHF:
 
         if expected_crc != read_crc16:
             print(f'found {pc_control_word}, {epc_tag_id}, {read_crc16}, calculated {expected_crc}')
-            raise TagReadException(f"Invalid CRC16. Received: {read_crc16}, Calculated: {expected_crc}")
+            raise TagReadGenericException(f"Invalid CRC16. Received: {read_crc16}, Calculated: {expected_crc}")
         return epc_tag_id
 
     def read_tag_id(self) -> str | None:
@@ -331,3 +331,20 @@ class FonkanUHF:
                 tags_processed.append(self._parse_tag_id_response(res))
 
             return tags_processed
+    
+    def read_tag_memory(self, bank: int, address: int, length: int) -> str:
+        """
+        Read tag memory
+        bank:
+            0: Reserved
+            1: EPC
+            2: TID
+            3: User
+        address: word address: 0-> 3FFF
+        length: read word length: 1->1E (1->30 bytes)
+        """
+        res = self.send_command_and_get_response(f"R{bank},{address},{length}")
+        if res is None:
+            raise UnexpectedReaderResponseException("No response from read tag memory command")
+        return res
+    
