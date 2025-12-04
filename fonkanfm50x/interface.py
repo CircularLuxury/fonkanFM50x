@@ -18,12 +18,14 @@ class FonkanUHF:
 			  serial_port: str = '/dev/ttyACM0',
 			  start_power: int = 25,
 			  baud_rate: AvailableBaudRates = AvailableBaudRates.BAUD_38400,
-			  region: RFIDRegion = RFIDRegion.EU):
+			  region: RFIDRegion = RFIDRegion.EU,
+			  debug: bool = False):
 		# WARNING: The RFID Module MUST be connected through the non power USB port
 		self.serial_port = serial_port
 		self.start_power = start_power
 		self.baud_rate = baud_rate
 		self.region = region
+		self.debug = debug
 		self.ser: serial.Serial | None = None
 		self.stall_time = 60
 		self.last_tag = "initialise value"
@@ -66,9 +68,12 @@ class FonkanUHF:
 				self.change_baud_rate(self.baud_rate)
 
 		# print(f"current power level: {self.get_power_level()}")
-		self.set_power_level(self.start_power)
-		self.set_region(self.region)
-		self.change_baud_rate(self.baud_rate)
+		current_power = self.get_power_level()
+		if current_power != self.start_power:
+			self.set_power_level(self.start_power)
+		current_region = self.get_region()
+		if current_region != self.region:
+			self.set_region(self.region)
 
 		return self
 	
@@ -92,7 +97,7 @@ class FonkanUHF:
 	def send_command_and_get_response(self, command: str) -> str | None:
 		if not self.ser:
 			raise RuntimeError("Serial port not initialized. Call begin() first.")
-		print(f">: {command.encode()}")
+		print(f">: {command.encode()}") if self.debug else None
 		self.ser.write(f"\n{command}\r".encode())
 
 		response = b''
@@ -114,7 +119,7 @@ class FonkanUHF:
 				break
 
 		decoded = response.decode('utf-8', errors='ignore')
-		print(f"<: {decoded}")
+		print(f"<: {decoded}") if self.debug else None
 
 		if decoded == 'X':
 			raise RuntimeError(f"RFID Reader does not understand {command}")
