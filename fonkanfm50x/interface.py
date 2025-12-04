@@ -361,12 +361,13 @@ class FonkanUHF:
         else:
             res = res.split(',')
             epc = res[0]
+            parsed_epc = self._parse_tag_id_response(epc)
             data = ','.join(res[1:])
             # Raise error on communication with RFID error
             if data[0] != 'R':
-                raise_exception_from_code(data[0])
+                raise_exception_from_code(data[0], f"error while reading {parsed_epc}")
             data = data[1:] # remove leading R, since command is Q,R and the R is echoed
 
 
-            return self._parse_tag_id_response(epc), data #bytes.fromhex(res).decode('utf-8')
+            return parsed_epc, data #bytes.fromhex(res).decode('utf-8')
     

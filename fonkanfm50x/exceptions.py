@@ -16,8 +16,6 @@ class TagMemoryLockedException(TagGenericException):
     pass
 class TagInsufficientPowerException(TagGenericException):
     pass
-class TagUnknownException(TagGenericException):
-    pass
 
 def raise_exception_from_code(error_code: str, message: str = ""):
     if error_code == '3':
@@ -27,9 +25,9 @@ def raise_exception_from_code(error_code: str, message: str = ""):
     elif error_code == 'B':
         raise TagInsufficientPowerException(message)
     elif error_code == 'E':
-        raise TagUnknownException(message)
+        raise TagGenericException(message)
     elif error_code == 'F':
-        raise TagUnknownException(message)
+        raise TagGenericException(message)
     elif error_code == '0':
         raise TagGenericException(message)
     else:
