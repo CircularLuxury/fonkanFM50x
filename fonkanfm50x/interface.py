@@ -2,6 +2,7 @@ import serial
 import time
 from enum import Enum
 from fastcrc import crc16
+from typing import Generator
 
 from .types import RFIDRegion, AvailableBaudRates, EPCMemoryBank
 from .exceptions import ReaderCommandNotSupportedException, UnexpectedReaderResponseException, raise_exception_from_code
@@ -44,7 +45,7 @@ class FonkanUHF:
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
             bytesize=serial.EIGHTBITS,
-            timeout=.3,
+            timeout=.1,
         )
 
         # Try command to check if connection baud rate is correct.
@@ -133,26 +134,33 @@ class FonkanUHF:
             return decoded
 
     def send_command_and_get_response(self, command: str, handle_error: callable = raise_exception_from_code) -> str:
-        self._write_command(command)
+        decoded:str | None = None
+        for _ in range(3):  # Retry up to 3 times
+            self._write_command(command)
 
-        decoded = self._read_response()
-        decoded = decoded.strip() if decoded else None
+            decoded = self._read_response()
+            decoded = decoded.strip() if decoded else None
 
-        if decoded == 'X':
-            raise ReaderCommandNotSupportedException(f"RFID Reader does not understand {command}")
-        elif decoded and decoded[0] != command[0]:
-            handle_error(decoded[0], f"response {decoded} while executing command {command}")
-            raise UnexpectedReaderResponseException(f"RFID Reader returned unexpected response for {command}: {decoded}")
+            if decoded == 'X':
+                # Re-attempt
+                time.sleep(0.2)
+                print("Received 'X' response, retrying...") if self.debug else None
+                continue
+            elif decoded and decoded[0] != command[0]:
+                handle_error(decoded[0], f"response {decoded} while executing command {command}")
+                raise UnexpectedReaderResponseException(f"RFID Reader returned unexpected response for {command}: {decoded}")
+            else:
+                return decoded[1:] if decoded else None
 
-        return decoded[1:]
+        raise ReaderCommandNotSupportedException(f"RFID Reader does not understand {command}")
     
-    def send_command_and_get_response_until(self, command: str, terminator: str) -> list[str]:
+    def send_command_and_get_response_until(self, command: str, terminator: str) -> Generator[str, None, None]:
         # Call self.send_command_and_get_response repeatedly until terminator is found
-        responses = []
         res = self.send_command_and_get_response(command)
         if res == terminator:
             # If not even the first response, return empty list
-            return []
+            return
+
         while True:
             res = self._read_response()
             if res is None:
@@ -160,10 +168,10 @@ class FonkanUHF:
             # remove command echo
             res = res.strip()[1:]
 
-            responses.append(res)
+            yield res
+
             if res == terminator:
                 break
-        return responses
 
     ####################################################################
     # Configuration
@@ -358,7 +366,7 @@ class FonkanUHF:
         else:                        
             return self._parse_tag_id_response(res)
     
-    def read_many_tag_id(self, slot_q:int|None = None) -> list[str]:
+    def read_many_tag_id(self, slot_q:int|None = None) -> Generator[str, None, None]:
         """
         Display tag EPC ID. Multiple at the same time if present.
         """
@@ -366,17 +374,10 @@ class FonkanUHF:
         slot_q = hex(slot_q)[2:].upper() if slot_q is not None else ''
 
         # Find tags until we recieve 'U': no tags found.
-        tags = self.send_command_and_get_response_until(f"U{slot_q or ''}", terminator="")
-        if tags == []:
-            return []
-        else:
-            tags_processed = []
-            for res in tags:
-                if res == "":
-                    continue
-                tags_processed.append(self._parse_tag_id_response(res))
-
-            return tags_processed
+        for res in self.send_command_and_get_response_until(f"U{slot_q or ''}", terminator=""):
+            if res == "":
+                continue
+            yield self._parse_tag_id_response(res)
     
     def read_tag_memory(self, bank: EPCMemoryBank, address: int, length: int) -> str | None:
         """
@@ -422,7 +423,7 @@ class FonkanUHF:
 
             return parsed_epc, data #bytes.fromhex(res).decode('utf-8')
 
-    def read_multi_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int, slot_q:int|None=None) -> list[tuple[str, str]]:
+    def read_multi_tag_memory_multiband(self, bank: EPCMemoryBank, address: int, length: int, slot_q:int|None=None) -> Generator[tuple[str, str], None, None]:
         """
         Read tag memory, multiband, multi-tag. Returns EPC & data
         slot_q: EPCglobal Class 1 Gen 2 ALOHA Anti-collision number of slots/Q-value that can be replied on. Designed for robust tag counting. Read: https://koreascience.kr/article/JAKO200911764893096.pdf
@@ -435,23 +436,17 @@ class FonkanUHF:
 
         slot_q = hex(slot_q)[2:].upper() if slot_q is not None else ''
 
-        tags = self.send_command_and_get_response_until(f"U{slot_q},R{bank.value},{address},{length}", "")
-        if tags == []:
-            return []
-        else:
-            tags_processed = []
-            for res in tags:
-                if res == "":
-                    continue
+        for res in self.send_command_and_get_response_until(f"U{slot_q},R{bank.value},{address},{length}", ""):
+            if res == "":
+                continue
 
-                res = res.split(',')
-                epc = res[0]
-                parsed_epc = self._parse_tag_id_response(epc)
-                data = ','.join(res[1:])
-                # Raise error on communication with RFID error
-                if data[0] != 'R':
-                    raise_exception_from_code(data[0], f"error while reading {parsed_epc}")
-                data = data[1:] # remove leading R, since command is Q,R and the R is echoed
+            res = res.split(',')
+            epc = res[0]
+            parsed_epc = self._parse_tag_id_response(epc)
+            data = ','.join(res[1:])
+            # Raise error on communication with RFID error
+            if data[0] != 'R':
+                raise_exception_from_code(data[0], f"error while reading {parsed_epc}")
+            data = data[1:] # remove leading R, since command is Q,R and the R is echoed
 
-                tags_processed.append((parsed_epc, data))
-            return tags_processed
+            yield (parsed_epc, data)
