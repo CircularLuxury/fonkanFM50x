@@ -2,30 +2,24 @@
 
 Unofficial python library for Fonkan FM50x series UHF RFID readers (ISO18000-6C/EPC Class 1 Gen 2).
 
-## Project Status
-+ [x] connection management & interface class
-+ [x] device configuration: power, region, baudrate...
-+ [x] tag id reading methods
-+ [x] multiple tag reading (with CRC check)
-+ [ ] multiband tag reading
-+ [ ] advanced tag operations (read/write memory, lock, kill...)
+This is a reverse-engineered library, since Fonkan did not provide me with any SDK or protocol documentation when I bought the reader, even though I asked for it.
 
 ## Hardware
 For more details, read [FM50x_specs.md](./docs/FM50x_specs.md)
 
-- **Model**: FM-50x family (FM-503/FM-505/...)
+- **Model**: FM-50x family (FM-503/FM-505/FM-507...)
 - **Interface**: UART (i.e. over USB with the provided USB adapter)
 
 ## Quick Usage
-
+A small tag searching tool is provided in `fonkanfm50x/__main__.py`, which can be run with:
 ```bash
 uv run python3 -m fonkanfm50x
 ```
 
 ## Library usage
+Pretty much self-described in the type signatures and docstrings. For specific implementation details, read [FM50x_protocol.md](./docs/FM50x_protocol.md)
 
 ```python
-
 from fonkanfm50x import FonkanUHF
 import time
 
@@ -38,19 +32,18 @@ if __name__ == '__main__':
         # Find more commands in fonkanfm50x/__main__.py
 ```
 
-## Configuration
-For more details, read [FM50x_protocol.md](./docs/FM50x_protocol.md)
+## Project Status
++ [x] reliable reader/counter
+    + [x] connection management & interface class
+    + [x] device configuration: power, region, baudrate...
+    + [x] tag id reading methods
+    + [x] multiple tag reading (with CRC check)
+    + [x] multiband tag reading
+    + [x] GPIO control (untested)
+    + [x] generator multi-tag reading (not just a for loop return)
+    + [x] simple EPC tag ID manufacturer identification
 
-### Regions
-+ `RFIDRegion.US` (902-928 MHz)
-+ `RFIDRegion.EU` (865-868 MHz)
-+ `RFIDRegion.CN` (920-925 MHz) 
-+ `RFIDRegion.JP` (916-921 MHz)
-+ `RFIDRegion.KR` (917-921 MHz)
-+ Others: TW, CN2, VN...
-
-### Baud Rates
-4800 | 9600 | 14400 | 19200 | 38400 | 57600 | 115200 | 230400
-
-### Power
--2 to 25 dBm (default: 25)
+- [ ] writer/password-protected operations
+    + [ ] password usage (simplified, as argument?)
+    + [ ] tag write operations (read/write memory, lock, kill...)
+    + [ ] advanced G1 G2 settings (what's that?)
