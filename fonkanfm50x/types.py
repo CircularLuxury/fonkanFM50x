@@ -30,3 +30,15 @@ class AvailableBaudRates(Enum):
 	BAUD_57600 = 5
 	BAUD_115200 = 6
 	BAUD_230400 = 7
+
+	def to_int(self) -> int:
+		return {
+			AvailableBaudRates.BAUD_4800: 4800,
+			AvailableBaudRates.BAUD_9600: 9600,
+			AvailableBaudRates.BAUD_14400: 14400,
+			AvailableBaudRates.BAUD_19200: 19200,
+			AvailableBaudRates.BAUD_38400: 38400,
+			AvailableBaudRates.BAUD_57600: 57600,
+			AvailableBaudRates.BAUD_115200: 115200,
+			AvailableBaudRates.BAUD_230400: 230400,
+		}[self]

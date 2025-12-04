@@ -3,7 +3,10 @@ import time
 
 from .types import RFIDRegion, AvailableBaudRates
 
-AFTER_SETTING_COMMAND_DELAY = 0.3 # Tested with default 38400 baud rate
+AFTER_SETTING_COMMAND_DELAY = 0.3 # Tested with default 38400 baud rate up to 230400 baud rate, so not dependent on connection speed
+
+class UnexpectedNullResponseException(Exception):
+    pass
 
 class FonkanUHF:
 	"""
@@ -30,13 +33,39 @@ class FonkanUHF:
 		# baud parameter is ignored for now to match request
 		self.ser = serial.Serial(
 			port=self.serial_port,
-			baudrate=38400,
+			baudrate=self.baud_rate.to_int(),
 			parity=serial.PARITY_NONE,
 			stopbits=serial.STOPBITS_ONE,
 			bytesize=serial.EIGHTBITS,
 			timeout=1,
 		)
 
+		# Try command to check if connection baud rate is correct.
+        # If not, try changing it until we find the right one, finally setting the chosen baud rate
+		# We require this because the reader remembers the last baud rate even after power cycling
+		connected_to_id:str|None = None
+		try:
+			connected_to_id = self.get_reader_id()
+		except UnexpectedNullResponseException:
+			print(f"Could not connect at initial baud rate {self.baud_rate.to_int()}, searching for correct rate...")
+			for rate in AvailableBaudRates:
+				try:
+					self._change_serial_connection_baud_rate(rate)
+
+					connected_to_id = self.get_reader_id()
+					if connected_to_id:
+						break
+				except Exception:
+					continue
+
+			if not connected_to_id:
+				raise RuntimeError("Could not establish connection with the RFID reader on any baud rate")
+			else:
+				print(f"Successfully connected to reader id: {connected_to_id} at baud rate {rate.to_int()}. Changing reader baud rate to desired {self.baud_rate.to_int()}.")
+				# Now set to desired baud rate
+				self.change_baud_rate(self.baud_rate)
+
+		# print(f"current power level: {self.get_power_level()}")
 		self.set_power_level(self.start_power)
 		self.set_region(self.region)
 		self.change_baud_rate(self.baud_rate)
@@ -57,7 +86,8 @@ class FonkanUHF:
 
 	def send_command(self, command: str):
 		res = self.send_command_and_get_response(command)
-		assert res is not None, f"No ACK for command {command}"
+		if res is None:
+			raise UnexpectedNullResponseException(f"No ACK for command {command}")
 	
 	def send_command_and_get_response(self, command: str) -> str | None:
 		if not self.ser:
@@ -116,7 +146,8 @@ class FonkanUHF:
 	
 	def get_power_level(self) -> int:
 		res = self.send_command_and_get_response("N0,00")
-		assert res is not None, "No response from get power level command"
+		if res is None:
+			raise UnexpectedNullResponseException("No response from get power level command")
 		return int(res, 16)
 
 	def set_power_level(self, power_level: int):
@@ -129,28 +160,25 @@ class FonkanUHF:
 		# This command requires a rate-limit after running to prevent the device from locking
 		time.sleep(AFTER_SETTING_COMMAND_DELAY)
 
+	def _change_serial_connection_baud_rate(self, baud_rate: AvailableBaudRates):
+		if not self.ser:
+			raise RuntimeError("Serial port not initialized. Call begin() first.")
+
+		# Close current serial connection
+		self.ser.close()
+		# Reopen with new baud rate
+		self.ser.baudrate = baud_rate.to_int()
+		self.ser.open()
+		time.sleep(0.3)
+
 	def change_baud_rate(self, baud_rate: AvailableBaudRates):
 		# Change baud rate
 		res = self.send_command_and_get_response(f"NA,0{baud_rate.value}")
 		assert res[0:2] == f"0{baud_rate.value}"
 		time.sleep(AFTER_SETTING_COMMAND_DELAY)
 
-		# Close current serial connection
-		self.ser.close()
-		# Reopen with new baud rate
-		new_baud = {
-			AvailableBaudRates.BAUD_4800: 4800,
-			AvailableBaudRates.BAUD_9600: 9600,
-			AvailableBaudRates.BAUD_14400: 14400,
-			AvailableBaudRates.BAUD_19200: 19200,
-			AvailableBaudRates.BAUD_38400: 38400,
-			AvailableBaudRates.BAUD_57600: 57600,
-			AvailableBaudRates.BAUD_115200: 115200,
-			AvailableBaudRates.BAUD_230400: 230400,
-		}[baud_rate]
-		self.ser.baudrate = new_baud
-		self.ser.open()
-		time.sleep(0.3)
+        # Change serial connection baud rate
+		self._change_serial_connection_baud_rate(baud_rate)
 
 	# GPIO
 	# | N6,00 get GPIO configuration N7,<value> set GPIO configuration <value>mask and setting mask: first digi 4+2+1 4: pin10 2: pin11 1: pin14 setting: second digi 4+2+1 4: pin10 out 2: pin11 out 1: pin14 out        | N<value> <value> 4+2+1 4: pin10 out 2: pin11 out 1: pin14 out                                                                                                                                                                                                    |                                 | get/set GPIO input/output configuration                                                          |
@@ -171,7 +199,8 @@ class FonkanUHF:
 
 	def get_reader_firmware(self) -> str:
 		res = self.send_command_and_get_response("V")
-		assert res is not None, "No response from reader firmware command"
+		if res is None:
+			raise UnexpectedNullResponseException("No response from get firmware command")
 		res = res.split(',')
 		
 		major = res[0][0:2]
@@ -185,7 +214,10 @@ class FonkanUHF:
 		return f"v{major_int}.{minor_int} ({major}{minor}, comment: {comment})"
 
 	def get_reader_id(self) -> str:
-		return self.send_command_and_get_response("S")
+		res = self.send_command_and_get_response("S")
+		if res is None:
+			raise UnexpectedNullResponseException("No response from get reader ID command")
+		return res
 
 
 	####################################################################
