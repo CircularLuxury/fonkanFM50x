@@ -11,7 +11,7 @@ Unofficial python library for Fonkan FM50x series UHF RFID readers (ISO18000-6C/
 + [ ] advanced tag operations (read/write memory, lock, kill...)
 
 ## Hardware
-For more details, read [FM50x_specs.md](./FM50x_specs.md)
+For more details, read [FM50x_specs.md](./docs/FM50x_specs.md)
 
 - **Model**: FM-50x family (FM-503/FM-505/...)
 - **Interface**: UART (i.e. over USB with the provided USB adapter)
@@ -39,7 +39,7 @@ if __name__ == '__main__':
 ```
 
 ## Configuration
-For more details, read [FM50x_protocol.md](./FM50x_protocol.md)
+For more details, read [FM50x_protocol.md](./docs/FM50x_protocol.md)
 
 ### Regions
 + `RFIDRegion.US` (902-928 MHz)
