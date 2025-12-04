@@ -1,5 +1,6 @@
 import serial
 import time
+from fastcrc import crc16
 
 from .types import RFIDRegion, AvailableBaudRates
 from .exceptions import UnexpectedReaderResponseException, TagReadException
@@ -222,25 +223,22 @@ class FonkanUHF:
             raise UnexpectedReaderResponseException("No response from get reader ID command")
         return res
 
-
     ####################################################################
     # Tag Operations
     ####################################################################
 
     def _calculate_crc16(self, data: bytes) -> str:
         '''
-        Calculate CRC16-CCITT (0xFFFF initial value, polynomial 0x1021)
-        Returns hex string in uppercase
         '''
         crc = 0xFFFF
         for byte in data:
-            crc ^= (byte << 8)
+            crc ^= byte
             for _ in range(8):
-                if (crc & 0x8000) != 0:
-                    crc = (crc << 1) ^ 0x1021
+                if (crc & 0x0001) != 0:
+                    crc >>= 1
+                    crc ^= 0xA001
                 else:
-                    crc <<= 1
-                crc &= 0xFFFF  # Keep crc to 16 bits
+                    crc >>= 1
         return format(crc, '04X')
 
     def read_tag_id(self) -> str | None:
@@ -259,7 +257,7 @@ class FonkanUHF:
             # 3000E28068940000402 C6FE0
             # 3000 E28068940000502 C6FE0
 
-            # pc_control_word = res[0:4]
+            pc_control_word = res[0:4]
             # if pc_control_word == "3000":
             #     # EPC length is 6 words, 12 bytes, 96 bits
             # elif pc_control_word == "4000":
@@ -268,14 +266,18 @@ class FonkanUHF:
             #     raise TagReadException(f"Unsupported PC control word: {pc_control_word}")
 
             epc_tag_id = res[4:-4]
-            # crc16 = res[-4:]
-            # epc_tag_id = res[4:]
+            read_crc16 = res[-4:]
             
             # check CRC, raise exception if invalid
-            # calculated_crc16 = self._calculate_crc16(bytes.fromhex(pc + epc))
-            # if calculated_crc16 != crc16:
-            #     print(f'found {pc}, {epc}, {crc16}, calculated {calculated_crc16}')
-            #     raise TagReadException(f"Invalid CRC16. Received: {crc16}, Calculated: {calculated_crc16}")
+            # Calculate CRC-16/GENIBUS
+            # Found correct algo with https://crccalc.com/?crc=3000E28068940000402C6FE0A11E&method=CRC-16/GENIBUS&datatype=hex&outtype=hex
+            expected_crc = crc16.genibus(bytes.fromhex(pc_control_word + epc_tag_id))
+            #Convert to 4-digit hex
+            expected_crc = format(expected_crc, '04X')
+
+            if expected_crc != read_crc16:
+                print(f'found {pc_control_word}, {epc_tag_id}, {read_crc16}, calculated {expected_crc}')
+                raise TagReadException(f"Invalid CRC16. Received: {read_crc16}, Calculated: {expected_crc}")
             
             return epc_tag_id
     
