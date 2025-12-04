@@ -9,4 +9,5 @@ __all__ = [
 	"AvailableBaudRates",
 	"TagGenericException",
 	"UnexpectedReaderResponseException",
+    "epcglobal"
 ]
