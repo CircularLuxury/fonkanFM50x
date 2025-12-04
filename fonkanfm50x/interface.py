@@ -2,11 +2,9 @@ import serial
 import time
 
 from .types import RFIDRegion, AvailableBaudRates
+from .exceptions import UnexpectedReaderResponseException, TagReadException
 
 AFTER_SETTING_COMMAND_DELAY = 0.3 # Tested with default 38400 baud rate up to 230400 baud rate, so not dependent on connection speed
-
-class UnexpectedNullResponseException(Exception):
-    pass
 
 class FonkanUHF:
 	"""
@@ -48,7 +46,7 @@ class FonkanUHF:
 		connected_to_id:str|None = None
 		try:
 			connected_to_id = self.get_reader_id()
-		except UnexpectedNullResponseException:
+		except UnexpectedReaderResponseException:
 			print(f"Could not connect at initial baud rate {self.baud_rate.to_int()}, searching for correct rate...")
 			for rate in AvailableBaudRates:
 				try:
@@ -92,7 +90,7 @@ class FonkanUHF:
 	def send_command(self, command: str):
 		res = self.send_command_and_get_response(command)
 		if res is None:
-			raise UnexpectedNullResponseException(f"No ACK for command {command}")
+			raise UnexpectedReaderResponseException(f"No ACK for command {command}")
 	
 	def send_command_and_get_response(self, command: str) -> str | None:
 		if not self.ser:
@@ -152,7 +150,7 @@ class FonkanUHF:
 	def get_power_level(self) -> int:
 		res = self.send_command_and_get_response("N0,00")
 		if res is None:
-			raise UnexpectedNullResponseException("No response from get power level command")
+			raise UnexpectedReaderResponseException("No response from get power level command")
 		return int(res, 16)
 
 	def set_power_level(self, power_level: int):
@@ -205,7 +203,7 @@ class FonkanUHF:
 	def get_reader_firmware(self) -> str:
 		res = self.send_command_and_get_response("V")
 		if res is None:
-			raise UnexpectedNullResponseException("No response from get firmware command")
+			raise UnexpectedReaderResponseException("No response from get firmware command")
 		res = res.split(',')
 		
 		major = res[0][0:2]
@@ -221,10 +219,102 @@ class FonkanUHF:
 	def get_reader_id(self) -> str:
 		res = self.send_command_and_get_response("S")
 		if res is None:
-			raise UnexpectedNullResponseException("No response from get reader ID command")
+			raise UnexpectedReaderResponseException("No response from get reader ID command")
 		return res
 
 
 	####################################################################
-	# Configuration
+	# Tag Operations
 	####################################################################
+
+	def _calculate_crc16(self, data: bytes) -> str:
+		'''
+		Calculate CRC16-CCITT (0xFFFF initial value, polynomial 0x1021)
+		Returns hex string in uppercase
+		'''
+		crc = 0xFFFF
+		for byte in data:
+			crc ^= (byte << 8)
+			for _ in range(8):
+				if (crc & 0x8000) != 0:
+					crc = (crc << 1) ^ 0x1021
+				else:
+					crc <<= 1
+				crc &= 0xFFFF  # Keep crc to 16 bits
+		return format(crc, '04X')
+
+	def read_tag_id(self) -> str | None:
+		"""
+		Display tag EPC ID
+		"""
+		res = self.send_command_and_get_response("Q")
+		if res is None:
+			raise UnexpectedReaderResponseException("No response from read tag command")
+		elif res == '':
+			return None
+		else:			
+			# res = PC+EPC+CRC16
+			# Example read:
+			# 3000E28068940000402C6FE0911EF6F4
+			# 3000E28068940000402 C6FE0
+			# 3000 E28068940000502 C6FE0
+
+			# pc_control_word = res[0:4]
+			# if pc_control_word == "3000":
+			# 	# EPC length is 6 words, 12 bytes, 96 bits
+			# elif pc_control_word == "4000":
+			# 	# EPC length is 8 words, 16 bytes, 128 bits
+			# else:
+			# 	raise TagReadException(f"Unsupported PC control word: {pc_control_word}")
+
+			epc_tag_id = res[4:-4]
+			# crc16 = res[-4:]
+			# epc_tag_id = res[4:]
+			
+			# check CRC, raise exception if invalid
+			# calculated_crc16 = self._calculate_crc16(bytes.fromhex(pc + epc))
+			# if calculated_crc16 != crc16:
+			# 	print(f'found {pc}, {epc}, {crc16}, calculated {calculated_crc16}')
+			# 	raise TagReadException(f"Invalid CRC16. Received: {crc16}, Calculated: {calculated_crc16}")
+			
+			return epc_tag_id
+	
+	'''
+	A: the RFID Tag memory (Tag) is divided into Reserved memory (retention), EPC (electronic product code), TID (Tag identification number) and the User (User) four independent storage block (Bank).
+
+	Reserved area: store Kill Password (monkey) and Access Password (Access Password).
+
+	EPC area: store the EPC number, etc.
+
+	Every TID area: store tags identification number, number should be unique.
+
+	The User area: storing User defined data.
+
+	In addition to the Lock (Lock) status of each block and so on use and storage properties of units.
+	'''
+
+	# def read_many_tag_ids(self) -> list[str]:
+	# 	"""
+	# 	Read multiple tag EPC IDs
+	# 	"""
+
+	# 	res = self.send_command_and_get_response("Q")
+	# 	if res is None:
+	# 		raise UnexpectedReaderResponseException("No response from read tag command")
+	# 	elif res == '':
+	# 		return None
+	# 	else:
+	# 		# res = PC+EPC+CRC16
+	# 		# example: 3000E28068940000402C6FE0911EF6F4
+	# 		pc = res[0:4]
+	# 		epc = res[4:-4]
+	# 		crc16 = res[-4:]
+	
+	# 		# check CRC, raise exception if invalid
+	# 		calculated_crc16 = self._calculate_crc16(bytes.fromhex(pc + epc))
+	# 		if calculated_crc16 != crc16:
+	# 			print(f'found {pc}, {epc}, {crc16}, calculated {calculated_crc16}')
+	# 			raise TagReadException(f"Invalid CRC16. Received: {crc16}, Calculated: {calculated_crc16}")
+			
+	# 		return res
+
