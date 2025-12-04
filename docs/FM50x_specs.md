@@ -1,4 +1,5 @@
 # Fonkan FM-503 UHF RFID Module
+> NOTE: FM-50x modules appear to be electrically identical, only differing in the provided antenna.
 
 ## Device
 
@@ -24,6 +25,8 @@ Operation range: Around 3m, dependent on tag
 |  			Operating 			time 		              |  			<100mS. 		                                                                                                                                                |  			Heat-dissipating 			method 		 |  			Air 			cooling(no need for out install cooling fin) 		                        |
 |  			Communication 			baud rate 		     |  			115200 			bps(default and recommend)  			 38400bps 		                                                                                                           |  			   			 		                     |  			   			 		                                                                     |
 |  			   			 		                         |  			   			 		                                                                                                                                                    |  			   			 		                     |  			   			 		                                                                     |
+
+> NOTE: in my particular case, the default baud rate was 38400bps, and the max baud rate is 230400bps. Datasheet seems to be outdated.
 
 **Recommended operating conditions:**
 |  			Frequency 		                   |  			840-960MHZ 		                                                                                                                                             |  			Working 			Voltage 		         |  			DC 			3.5V – 5 V 		                                                           |
